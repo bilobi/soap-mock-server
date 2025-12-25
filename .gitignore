@@ -1,0 +1,5 @@
+soap-mock-server
+*.exe
+*.out
+*.test
+.DS_Store
