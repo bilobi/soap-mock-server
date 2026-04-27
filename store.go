@@ -2358,7 +2358,7 @@ func initStores() (map[string]*Store, error) {
         dataDir = "service"
     }
 
-    endpoints := []string{"session", "wsse", "basic", "ntlm", "noauth"}
+    endpoints := []string{"session", "wsse", "basic", "ntlm", "noauth", "sap"}
     stores := make(map[string]*Store, len(endpoints))
     for _, endpoint := range endpoints {
         path := filepath.Join(dataDir, endpoint+".json")

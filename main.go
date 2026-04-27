@@ -14,6 +14,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,21 @@ var (
 	sessions     = make(map[string]*Session)
 	sessionMutex sync.RWMutex
 )
+
+// SAP session store — keyed by SAP_SESSIONID cookie value
+var (
+	sapSessions     = make(map[string]*SAPSession)
+	sapSessionMutex sync.RWMutex
+)
+
+type SAPSession struct {
+	SessionID string
+	CSRFToken string
+	SAPClient string
+	Username  string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
 
 type NTLMChallenge struct {
 	Challenge string
@@ -91,6 +107,7 @@ func main() {
 	mux.HandleFunc("/basic/service.wsdl", handleBasicWSDL)
 	mux.HandleFunc("/ntlm/service.wsdl", handleNTLMWSDL)
 	mux.HandleFunc("/noauth/service.wsdl", handleNoAuthWSDL)
+	mux.HandleFunc("/sap/service.wsdl", handleSAPWSDL)
 
 	// SOAP endpoints
 	mux.HandleFunc("/session/soap", handleSessionSOAP)
@@ -98,6 +115,7 @@ func main() {
 	mux.HandleFunc("/basic/soap", handleBasicSOAP)
 	mux.HandleFunc("/ntlm/soap", handleNTLMSOAP)
 	mux.HandleFunc("/noauth/soap", handleNoAuthSOAP)
+	mux.HandleFunc("/sap/soap", handleSAPSOAP)
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -107,22 +125,29 @@ func main() {
 	// Info page
 	mux.HandleFunc("/", handleIndex)
 
-	port := ":8099"
-	log.Printf("🚀 SOAP Mock Server starting on http://localhost%s", port)
+	port := os.Getenv("SOAP_MOCK_PORT")
+	if port == "" {
+		port = "8099"
+	}
+	addr = ":" + port
+
+	log.Printf("🚀 SOAP Mock Server starting on http://localhost%s", addr)
 	log.Printf("📋 Available WSDLs:")
-	log.Printf("   - http://localhost%s/session/service.wsdl (SOAP Session Auth)", port)
-	log.Printf("   - http://localhost%s/wsse/service.wsdl (WS-Security UsernameToken)", port)
-	log.Printf("   - http://localhost%s/basic/service.wsdl (Basic Auth)", port)
-	log.Printf("   - http://localhost%s/ntlm/service.wsdl (NTLM/Windows Auth)", port)
-	log.Printf("   - http://localhost%s/noauth/service.wsdl (No Auth)", port)
+	log.Printf("   - http://localhost%s/session/service.wsdl (SOAP Session Auth)", addr)
+	log.Printf("   - http://localhost%s/wsse/service.wsdl (WS-Security UsernameToken + WS-Policy)", addr)
+	log.Printf("   - http://localhost%s/basic/service.wsdl (Basic Auth + WS-Policy)", addr)
+	log.Printf("   - http://localhost%s/ntlm/service.wsdl (NTLM/Windows Auth + WS-Policy)", addr)
+	log.Printf("   - http://localhost%s/noauth/service.wsdl (No Auth)", addr)
+	log.Printf("   - http://localhost%s/sap/service.wsdl (SAP Session Auth)", addr)
 	log.Printf("🔑 Test credentials: %s / %s", TestUsername, TestPassword)
 	log.Printf("🔑 NTLM credentials: TESTDOMAIN\\%s / %s", TestUsername, TestPassword)
+	log.Printf("🔑 SAP credentials: %s / %s (sap-client: 100)", TestUsername, TestPassword)
 	log.Printf("────────────────────────────────────────────────────────────────────")
 
 	// Wrap with logging middleware
 	handler := loggingMiddleware(mux)
 
-	if err := http.ListenAndServe(port, handler); err != nil {
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -276,7 +301,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
     
     <div class="endpoint">
         <h3><span class="auth-type session">SOAP SESSION</span> DIVA-like Session Authentication</h3>
-        <p>WSDL: <code>http://localhost:8099/session/service.wsdl</code></p>
+        <p>WSDL: <code>/session/service.wsdl</code></p>
         <p>Operations: <code>Login</code>, <code>Logout</code>, ERP CRUD (Customers, Stocks, Cash Accounts, Orders, Invoices, Cash Transactions)</p>
         <p>Flow: Login sets <code>session</code> cookie and returns token; send via Cookie, X-Session-Token, or SOAP SessionHeader.</p>
         <p>SOAP: 1.1 and 1.2 supported</p>
@@ -284,21 +309,21 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 
     <div class="endpoint">
         <h3><span class="auth-type wsse">WS-SECURITY</span> UsernameToken Authentication</h3>
-        <p>WSDL: <code>http://localhost:8099/wsse/service.wsdl</code></p>
+        <p>WSDL: <code>/wsse/service.wsdl</code></p>
         <p>Operations: ERP CRUD (Customers, Stocks, Cash Accounts, Orders, Invoices, Cash Transactions)</p>
         <p>Auth: WS-Security UsernameToken in SOAP Header (PasswordText/Digest)</p>
     </div>
 
     <div class="endpoint">
         <h3><span class="auth-type basic">BASIC AUTH</span> HTTP Basic Authentication</h3>
-        <p>WSDL: <code>http://localhost:8099/basic/service.wsdl</code></p>
+        <p>WSDL: <code>/basic/service.wsdl</code></p>
         <p>Operations: ERP CRUD (Customers, Stocks, Cash Accounts, Orders, Invoices, Cash Transactions)</p>
         <p>Auth: HTTP Authorization header</p>
     </div>
 
     <div class="endpoint">
         <h3><span class="auth-type ntlm" style="background: #9C27B0;">NTLM</span> Windows Authentication</h3>
-        <p>WSDL: <code>http://localhost:8099/ntlm/service.wsdl</code></p>
+        <p>WSDL: <code>/ntlm/service.wsdl</code></p>
         <p>Operations: ERP CRUD (Customers, Stocks, Cash Accounts, Orders, Invoices, Cash Transactions)</p>
         <p>Auth: NTLM challenge-response (3-way handshake)</p>
         <p>Credentials: <code>TESTDOMAIN\testuser</code> / <code>testpass123</code></p>
@@ -307,10 +332,30 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 
     <div class="endpoint">
         <h3><span class="auth-type noauth">NO AUTH</span> Public Service</h3>
-        <p>WSDL: <code>http://localhost:8099/noauth/service.wsdl</code></p>
+        <p>WSDL: <code>/noauth/service.wsdl</code></p>
         <p>Operations: <code>GetCountries</code>, <code>GetCities</code>, ERP CRUD (no auth)</p>
         <p>Auth: None required</p>
     </div>
+
+    <div class="endpoint">
+        <h3><span class="auth-type session" style="background: #E91E63;">SAP SESSION</span> SAP Session Authentication</h3>
+        <p>WSDL: <code>/sap/service.wsdl</code></p>
+        <p>Operations: ERP CRUD (Customers, Stocks, Cash Accounts, Orders, Invoices, Cash Transactions)</p>
+        <p>Auth: HTTP Basic Auth for first request + <code>sap-client</code> header</p>
+        <p>Flow: First request creates session → <code>SAP_SESSIONID_MKS_100</code> cookie + <code>x-csrf-token</code> returned. Subsequent requests use cookie.</p>
+        <p>Credentials: <code>testuser</code> / <code>testpass123</code> (sap-client: <code>100</code>)</p>
+    </div>
+
+    <h2>Standards Compliance</h2>
+    <table>
+        <tr><th>Feature</th><th>Status</th></tr>
+        <tr><td>SOAP 1.1 &amp; 1.2</td><td>All endpoints support both</td></tr>
+        <tr><td>WS-Policy</td><td>WSSE, Basic, NTLM WSDLs include policy assertions</td></tr>
+        <tr><td>WS-Security</td><td>UsernameToken (PasswordText + PasswordDigest)</td></tr>
+        <tr><td>NTLM 3-way handshake</td><td>Type1→Type2→Type3 flow</td></tr>
+        <tr><td>SAP session</td><td>Cookie + CSRF token flow</td></tr>
+        <tr><td>Dynamic WSDL addresses</td><td>Derived from request Host header</td></tr>
+    </table>
 </body>
 </html>`
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -321,86 +366,126 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 // WSDL Handlers
 // ============================================================================
 
+// baseURL builds the service base URL from the incoming request Host header.
+// Falls back to localhost with the configured port if Host is empty.
+func baseURL(r *http.Request) string {
+	host := r.Host
+	if host == "" {
+		host = "localhost" + addr
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + host
+}
+
+// addr is set in main() and used by baseURL as fallback
+var addr string
+
 func handleSessionWSDL(w http.ResponseWriter, r *http.Request) {
+	base := baseURL(r)
 	wsdl := buildWSDL(wsdlConfig{
 		Namespace:            "http://mock.imaxis.com/session",
 		ServiceName:          "SessionAuthService",
 		PortTypeName:         "SessionAuthPortType",
 		BindingName:          "SessionAuthBinding",
-		Address:              "http://localhost:8099/session/soap",
+		Address:              base + "/session/soap",
 		Endpoint:             "session",
-		IncludeSoap12:        true,
 		IncludeSessionOps:    true,
 		IncludeSessionHeader: true,
 		IncludePublic:        false,
+		Policy:               PolicyNone,
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	w.Write([]byte(wsdl))
 }
 
 func handleWSSEWSDL(w http.ResponseWriter, r *http.Request) {
+	base := baseURL(r)
 	wsdl := buildWSDL(wsdlConfig{
 		Namespace:            "http://mock.imaxis.com/wsse",
 		ServiceName:          "WSSEAuthService",
 		PortTypeName:         "WSSEAuthPortType",
 		BindingName:          "WSSEAuthBinding",
-		Address:              "http://localhost:8099/wsse/soap",
+		Address:              base + "/wsse/soap",
 		Endpoint:             "wsse",
-		IncludeSoap12:        false,
 		IncludeSessionOps:    false,
 		IncludeSessionHeader: false,
 		IncludePublic:        false,
+		Policy:               PolicyWSSEUsernameToken,
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	w.Write([]byte(wsdl))
 }
 
 func handleBasicWSDL(w http.ResponseWriter, r *http.Request) {
+	base := baseURL(r)
 	wsdl := buildWSDL(wsdlConfig{
 		Namespace:            "http://mock.imaxis.com/basic",
 		ServiceName:          "BasicAuthService",
 		PortTypeName:         "BasicAuthPortType",
 		BindingName:          "BasicAuthBinding",
-		Address:              "http://localhost:8099/basic/soap",
+		Address:              base + "/basic/soap",
 		Endpoint:             "basic",
-		IncludeSoap12:        false,
 		IncludeSessionOps:    false,
 		IncludeSessionHeader: false,
 		IncludePublic:        false,
+		Policy:               PolicyBasicAuth,
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	w.Write([]byte(wsdl))
 }
 
 func handleNTLMWSDL(w http.ResponseWriter, r *http.Request) {
+	base := baseURL(r)
 	wsdl := buildWSDL(wsdlConfig{
 		Namespace:            "http://mock.imaxis.com/ntlm",
 		ServiceName:          "NTLMAuthService",
 		PortTypeName:         "NTLMAuthPortType",
 		BindingName:          "NTLMAuthBinding",
-		Address:              "http://localhost:8099/ntlm/soap",
+		Address:              base + "/ntlm/soap",
 		Endpoint:             "ntlm",
-		IncludeSoap12:        false,
 		IncludeSessionOps:    false,
 		IncludeSessionHeader: false,
 		IncludePublic:        false,
+		Policy:               PolicyNTLMNegotiate,
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	w.Write([]byte(wsdl))
 }
 
 func handleNoAuthWSDL(w http.ResponseWriter, r *http.Request) {
+	base := baseURL(r)
 	wsdl := buildWSDL(wsdlConfig{
 		Namespace:            "http://mock.imaxis.com/public",
 		ServiceName:          "PublicService",
 		PortTypeName:         "PublicPortType",
 		BindingName:          "PublicBinding",
-		Address:              "http://localhost:8099/noauth/soap",
+		Address:              base + "/noauth/soap",
 		Endpoint:             "public",
-		IncludeSoap12:        false,
 		IncludeSessionOps:    false,
 		IncludeSessionHeader: false,
 		IncludePublic:        true,
+		Policy:               PolicyNone,
+	})
+	w.Header().Set("Content-Type", "text/xml")
+	w.Write([]byte(wsdl))
+}
+
+func handleSAPWSDL(w http.ResponseWriter, r *http.Request) {
+	base := baseURL(r)
+	wsdl := buildWSDL(wsdlConfig{
+		Namespace:            "http://mock.imaxis.com/sap",
+		ServiceName:          "SAPService",
+		PortTypeName:         "SAPPortType",
+		BindingName:          "SAPBinding",
+		Address:              base + "/sap/soap",
+		Endpoint:             "sap",
+		IncludeSessionOps:    false,
+		IncludeSessionHeader: false,
+		IncludePublic:        false,
+		Policy:               PolicyBasicAuth,
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	w.Write([]byte(wsdl))
@@ -912,6 +997,131 @@ func handleNoAuthSOAP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeSOAPFault(w, soapVersion, http.StatusBadRequest, "soap:Client", "", "Unknown operation")
+}
+
+// ============================================================================
+// SAP Session Handler
+// ============================================================================
+// SAP session flow:
+//   1. Client sends first request with HTTP Basic Auth + sap-client header
+//      → Server validates credentials, creates session
+//      → Response includes Set-Cookie: SAP_SESSIONID_xxx=<token> and x-csrf-token
+//   2. Subsequent requests send the cookie + x-csrf-token header (for mutating ops)
+//      → No Basic Auth needed, session cookie is sufficient
+
+const (
+	SAPClientHeader  = "sap-client"
+	SAPCSRFHeader    = "x-csrf-token"
+	SAPSessionCookie = "SAP_SESSIONID_MKS_100"
+	SAPDefaultClient = "100"
+)
+
+func handleSAPSOAP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	soapVersion := soapVersionFromContentType(r.Header.Get("Content-Type"))
+
+	// Check for existing SAP session via cookie
+	var sapSession *SAPSession
+	if cookie, err := r.Cookie(SAPSessionCookie); err == nil {
+		sapSessionMutex.RLock()
+		s, exists := sapSessions[cookie.Value]
+		sapSessionMutex.RUnlock()
+		if exists && time.Now().Before(s.ExpiresAt) {
+			sapSession = s
+		}
+	}
+
+	// If no valid session, require Basic Auth to create one (SAP login flow)
+	if sapSession == nil {
+		username, password, ok := r.BasicAuth()
+		if !ok || !validateCredentials(username, password) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="SAP Mock Server"`)
+			writeSOAPFault(w, soapVersion, http.StatusUnauthorized, "soap:Client", "", "SAP authentication required - provide Basic Auth credentials with sap-client header")
+			return
+		}
+
+		sapClient := r.Header.Get(SAPClientHeader)
+		if sapClient == "" {
+			sapClient = SAPDefaultClient
+		}
+
+		// Create SAP session
+		sessionID := generateToken()
+		csrfToken := generateToken()
+		sapSession = &SAPSession{
+			SessionID: sessionID,
+			CSRFToken: csrfToken,
+			SAPClient: sapClient,
+			Username:  username,
+			CreatedAt: time.Now(),
+			ExpiresAt: time.Now().Add(30 * time.Minute),
+		}
+
+		sapSessionMutex.Lock()
+		sapSessions[sessionID] = sapSession
+		sapSessionMutex.Unlock()
+
+		// Set SAP session cookie and CSRF token in response
+		http.SetCookie(w, &http.Cookie{
+			Name:     SAPSessionCookie,
+			Value:    sessionID,
+			Path:     "/sap/",
+			HttpOnly: true,
+			Expires:  sapSession.ExpiresAt,
+		})
+		w.Header().Set(SAPCSRFHeader, csrfToken)
+		w.Header().Set(SAPClientHeader, sapClient)
+
+		log.Printf("[SAP] New session created for user: %s, sap-client: %s, session: %s...", username, sapClient, sessionID[:min(16, len(sessionID))])
+	} else {
+		log.Printf("[SAP] Session auth OK - user: %s, sap-client: %s", sapSession.Username, sapSession.SAPClient)
+	}
+
+	// Handle CSRF token fetch request (SAP convention: GET/HEAD with x-csrf-token: Fetch)
+	// Some SAP clients also do this via POST, so check the header
+	if strings.EqualFold(r.Header.Get(SAPCSRFHeader), "Fetch") {
+		w.Header().Set(SAPCSRFHeader, sapSession.CSRFToken)
+		w.Header().Set(SAPClientHeader, sapSession.SAPClient)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeSOAPFault(w, soapVersion, http.StatusBadRequest, "soap:Client", "", "Failed to read SOAP body")
+		return
+	}
+
+	info, parseErr := parseSOAPMessage(body)
+	if parseErr == nil && info.Version != "" {
+		soapVersion = info.Version
+	}
+
+	soapAction := getSOAPAction(r)
+	operation := ""
+	if parseErr == nil {
+		operation = info.Operation
+	}
+	if operation == "" && soapAction != "" {
+		operation = operationFromSOAPAction(soapAction)
+	}
+
+	log.Printf("[SAP] SOAPAction: %s Operation: %s", soapAction, operation)
+
+	store, storeErr := storeForEndpoint("sap")
+	if storeErr != nil {
+		writeSOAPFault(w, soapVersion, http.StatusInternalServerError, "soap:Server", "", "Store not available")
+		return
+	}
+
+	if handleERPOperation(w, soapVersion, operation, store, "http://mock.imaxis.com/sap", body) {
+		return
+	}
 	writeSOAPFault(w, soapVersion, http.StatusBadRequest, "soap:Client", "", "Unknown operation")
 }
 

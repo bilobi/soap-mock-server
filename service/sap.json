@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "nextCustomerId": 1,
+    "nextStockId": 1,
+    "nextCashAccountId": 1,
+    "nextOrderId": 1,
+    "nextInvoiceId": 1,
+    "nextCashTransactionId": 1
+  },
+  "customers": [],
+  "stocks": [],
+  "cashAccounts": [],
+  "orders": [],
+  "invoices": [],
+  "cashTransactions": [],
+  "countries": [],
+  "cities": []
+}

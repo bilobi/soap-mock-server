@@ -5,6 +5,16 @@ import (
     "strings"
 )
 
+// PolicyType determines what WS-Policy assertion to include in the WSDL
+type PolicyType string
+
+const (
+    PolicyNone              PolicyType = ""
+    PolicyBasicAuth         PolicyType = "basic"
+    PolicyWSSEUsernameToken PolicyType = "wsse"
+    PolicyNTLMNegotiate     PolicyType = "ntlm"
+)
+
 type wsdlConfig struct {
     Namespace            string
     ServiceName          string
@@ -12,10 +22,10 @@ type wsdlConfig struct {
     BindingName          string
     Address              string
     Endpoint             string
-    IncludeSoap12        bool
     IncludeSessionOps    bool
     IncludeSessionHeader bool
     IncludePublic        bool
+    Policy               PolicyType
 }
 
 var erpOperations = []string{
@@ -905,7 +915,27 @@ func buildWSDL(cfg wsdlConfig) string {
 
     var sb strings.Builder
     sb.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-    sb.WriteString(fmt.Sprintf("<definitions xmlns=\"http://schemas.xmlsoap.org/wsdl/\" xmlns:soap=\"http://schemas.xmlsoap.org/wsdl/soap/\" xmlns:soap12=\"http://schemas.xmlsoap.org/wsdl/soap12/\" xmlns:tns=\"%s\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" name=\"%s\" targetNamespace=\"%s\">\n", cfg.Namespace, cfg.ServiceName, cfg.Namespace))
+
+    // Root element with all required namespace declarations
+    sb.WriteString(fmt.Sprintf("<definitions xmlns=\"http://schemas.xmlsoap.org/wsdl/\" xmlns:soap=\"http://schemas.xmlsoap.org/wsdl/soap/\" xmlns:soap12=\"http://schemas.xmlsoap.org/wsdl/soap12/\" xmlns:tns=\"%s\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"", cfg.Namespace))
+    if cfg.Policy != PolicyNone {
+        sb.WriteString(" xmlns:wsp=\"http://schemas.xmlsoap.org/ws/2004/09/policy\"")
+        switch cfg.Policy {
+        case PolicyWSSEUsernameToken:
+            sb.WriteString(" xmlns:sp=\"http://docs.oasis-open.org/ws-sx/ws-securitypolicy/200702\"")
+        case PolicyNTLMNegotiate:
+            sb.WriteString(" xmlns:http=\"http://schemas.microsoft.com/ws/06/2004/policy/http\"")
+        case PolicyBasicAuth:
+            sb.WriteString(" xmlns:http=\"http://schemas.microsoft.com/ws/06/2004/policy/http\"")
+        }
+    }
+    sb.WriteString(fmt.Sprintf(" name=\"%s\" targetNamespace=\"%s\">\n", cfg.ServiceName, cfg.Namespace))
+
+    // WS-Policy declaration
+    if cfg.Policy != PolicyNone {
+        sb.WriteString(buildWSPolicy(cfg.Policy))
+        sb.WriteString("\n")
+    }
 
     sb.WriteString("    <types>\n")
     sb.WriteString(fmt.Sprintf("        <xsd:schema targetNamespace=\"%s\" elementFormDefault=\"qualified\">\n", cfg.Namespace))
@@ -928,16 +958,67 @@ func buildWSDL(cfg wsdlConfig) string {
     sb.WriteString(buildPortType(cfg.PortTypeName, ops))
     sb.WriteString("\n")
 
-    sb.WriteString(buildBinding(cfg.BindingName, cfg.PortTypeName, cfg.Endpoint, ops, cfg.IncludeSessionHeader, "soap"))
-    if cfg.IncludeSoap12 {
-        sb.WriteString("\n")
-        sb.WriteString(buildBinding(cfg.BindingName+"Soap12", cfg.PortTypeName, cfg.Endpoint, ops, cfg.IncludeSessionHeader, "soap12"))
-    }
+    // SOAP 1.1 binding (with policy reference if applicable)
+    sb.WriteString(buildBinding(cfg.BindingName, cfg.PortTypeName, cfg.Endpoint, ops, cfg.IncludeSessionHeader, "soap", cfg.Policy))
+    // SOAP 1.2 binding — always included for all endpoints
+    sb.WriteString("\n")
+    sb.WriteString(buildBinding(cfg.BindingName+"Soap12", cfg.PortTypeName, cfg.Endpoint, ops, cfg.IncludeSessionHeader, "soap12", cfg.Policy))
     sb.WriteString("\n")
 
     sb.WriteString(buildService(cfg))
     sb.WriteString("</definitions>")
     return sb.String()
+}
+
+// buildWSPolicy generates WS-Policy XML block based on the policy type.
+// Follows WS-SecurityPolicy 1.2 (OASIS) for WSSE, and Microsoft WS-Policy
+// extensions for HTTP-level auth (Basic, NTLM/Negotiate).
+func buildWSPolicy(policy PolicyType) string {
+    switch policy {
+    case PolicyWSSEUsernameToken:
+        return `    <wsp:Policy wsu:Id="UsernameTokenPolicy" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+        <wsp:ExactlyOne>
+            <wsp:All>
+                <sp:TransportBinding>
+                    <wsp:Policy>
+                        <sp:TransportToken>
+                            <wsp:Policy>
+                                <sp:HttpsToken RequireClientCertificate="false"/>
+                            </wsp:Policy>
+                        </sp:TransportToken>
+                    </wsp:Policy>
+                </sp:TransportBinding>
+                <sp:SignedSupportingTokens>
+                    <wsp:Policy>
+                        <sp:UsernameToken sp:IncludeToken="http://docs.oasis-open.org/ws-sx/ws-securitypolicy/200702/IncludeToken/AlwaysToRecipient">
+                            <wsp:Policy>
+                                <sp:WssUsernameToken10/>
+                            </wsp:Policy>
+                        </sp:UsernameToken>
+                    </wsp:Policy>
+                </sp:SignedSupportingTokens>
+            </wsp:All>
+        </wsp:ExactlyOne>
+    </wsp:Policy>`
+    case PolicyBasicAuth:
+        return `    <wsp:Policy wsu:Id="BasicAuthPolicy" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+        <wsp:ExactlyOne>
+            <wsp:All>
+                <http:BasicAuthentication/>
+            </wsp:All>
+        </wsp:ExactlyOne>
+    </wsp:Policy>`
+    case PolicyNTLMNegotiate:
+        return `    <wsp:Policy wsu:Id="NTLMAuthPolicy" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+        <wsp:ExactlyOne>
+            <wsp:All>
+                <http:NegotiateAuthentication/>
+            </wsp:All>
+        </wsp:ExactlyOne>
+    </wsp:Policy>`
+    default:
+        return ""
+    }
 }
 
 func buildMessages(ops []string) string {
@@ -962,9 +1043,14 @@ func buildPortType(name string, ops []string) string {
     return sb.String()
 }
 
-func buildBinding(name, portTypeName, endpoint string, ops []string, includeHeader bool, soapPrefix string) string {
+func buildBinding(name, portTypeName, endpoint string, ops []string, includeHeader bool, soapPrefix string, policy PolicyType) string {
     var sb strings.Builder
     sb.WriteString(fmt.Sprintf("    <binding name=\"%s\" type=\"tns:%s\">\n", name, portTypeName))
+    // Reference the WS-Policy if one is defined
+    if policy != PolicyNone {
+        policyID := policyIDForType(policy)
+        sb.WriteString(fmt.Sprintf("        <wsp:PolicyReference URI=\"#%s\"/>\n", policyID))
+    }
     sb.WriteString(fmt.Sprintf("        <%s:binding style=\"document\" transport=\"http://schemas.xmlsoap.org/soap/http\"/>\n", soapPrefix))
     for _, op := range ops {
         sb.WriteString(fmt.Sprintf("        <operation name=\"%s\">\n", op))
@@ -984,17 +1070,30 @@ func buildBinding(name, portTypeName, endpoint string, ops []string, includeHead
     return sb.String()
 }
 
+func policyIDForType(policy PolicyType) string {
+    switch policy {
+    case PolicyWSSEUsernameToken:
+        return "UsernameTokenPolicy"
+    case PolicyBasicAuth:
+        return "BasicAuthPolicy"
+    case PolicyNTLMNegotiate:
+        return "NTLMAuthPolicy"
+    default:
+        return ""
+    }
+}
+
 func buildService(cfg wsdlConfig) string {
     var sb strings.Builder
     sb.WriteString(fmt.Sprintf("    <service name=\"%s\">\n", cfg.ServiceName))
+    // SOAP 1.1 port
     sb.WriteString(fmt.Sprintf("        <port name=\"%sPort\" binding=\"tns:%s\">\n", cfg.PortTypeName, cfg.BindingName))
     sb.WriteString(fmt.Sprintf("            <soap:address location=\"%s\"/>\n", cfg.Address))
     sb.WriteString("        </port>\n")
-    if cfg.IncludeSoap12 {
-        sb.WriteString(fmt.Sprintf("        <port name=\"%sPortSoap12\" binding=\"tns:%s\">\n", cfg.PortTypeName, cfg.BindingName+"Soap12"))
-        sb.WriteString(fmt.Sprintf("            <soap12:address location=\"%s\"/>\n", cfg.Address))
-        sb.WriteString("        </port>\n")
-    }
+    // SOAP 1.2 port — always included
+    sb.WriteString(fmt.Sprintf("        <port name=\"%sPortSoap12\" binding=\"tns:%s\">\n", cfg.PortTypeName, cfg.BindingName+"Soap12"))
+    sb.WriteString(fmt.Sprintf("            <soap12:address location=\"%s\"/>\n", cfg.Address))
+    sb.WriteString("        </port>\n")
     sb.WriteString("    </service>\n")
     return sb.String()
 }
