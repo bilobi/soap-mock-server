@@ -270,18 +270,35 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
     <meta charset="UTF-8">
     <title>SOAP Mock Server</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-        h1 { color: #333; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1120px; margin: 40px auto; padding: 20px; color: #202124; line-height: 1.5; }
+        h1 { color: #333; margin-bottom: 6px; }
+        h2 { margin-top: 34px; padding-bottom: 6px; border-bottom: 1px solid #ddd; }
+        h3 { margin-bottom: 8px; }
+        p { margin: 8px 0; }
         .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 8px; }
         .endpoint h3 { margin-top: 0; color: #0066cc; }
         code { background: #e0e0e0; padding: 2px 6px; border-radius: 4px; }
+        pre { background: #1f2933; color: #f8fafc; padding: 14px; border-radius: 8px; overflow-x: auto; line-height: 1.4; }
+        pre code { background: transparent; color: inherit; padding: 0; }
         .auth-type { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .session { background: #4CAF50; color: white; }
         .wsse { background: #2196F3; color: white; }
         .basic { background: #FF9800; color: white; }
         .noauth { background: #9E9E9E; color: white; }
+        .note { background: #fff8e1; border-left: 4px solid #f9ab00; padding: 10px 12px; border-radius: 6px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+        .section { background: #fafafa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; margin: 12px 0; }
+        .section h3 { margin-top: 0; color: #174ea6; }
+        .muted { color: #5f6368; }
+        .pill { display: inline-block; background: #e8f0fe; color: #174ea6; padding: 2px 8px; border-radius: 999px; margin: 2px; font-size: 12px; }
+        .method { font-weight: 700; color: #137333; }
+        .optional { color: #5f6368; font-size: 12px; }
+        details { border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; margin: 10px 0; background: #fff; }
+        summary { cursor: pointer; font-weight: 700; color: #174ea6; }
         table { width: 100%; border-collapse: collapse; margin: 10px 0; }
         td, th { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #f1f3f4; }
+        ul { margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -295,7 +312,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
     </table>
 
     <h2>Data Stores</h2>
-    <p>Each endpoint persists its own JSON in <code>service/</code> (session.json, wsse.json, basic.json, ntlm.json, noauth.json). Override with <code>SOAP_MOCK_DATA_DIR</code>.</p>
+    <p>Each endpoint persists its own JSON in <code>service/</code> (session.json, wsse.json, basic.json, ntlm.json, noauth.json, sap.json). Override with <code>SOAP_MOCK_DATA_DIR</code>.</p>
 
     <h2>Endpoints</h2>
     
@@ -344,6 +361,221 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
         <p>Auth: HTTP Basic Auth for first request + <code>sap-client</code> header</p>
         <p>Flow: First request creates session → <code>SAP_SESSIONID_MKS_100</code> cookie + <code>x-csrf-token</code> returned. Subsequent requests use cookie.</p>
         <p>Credentials: <code>testuser</code> / <code>testpass123</code> (sap-client: <code>100</code>)</p>
+    </div>
+
+    <h2>Service Usage</h2>
+    <div class="section">
+        <h3>SOAP Request Rules</h3>
+        <table>
+            <tr><th>Item</th><th>Value</th></tr>
+            <tr><td>SOAP method</td><td><span class="method">POST</span> to <code>/{auth}/soap</code></td></tr>
+            <tr><td>WSDL method</td><td><span class="method">GET</span> <code>/{auth}/service.wsdl</code></td></tr>
+            <tr><td>Content-Type</td><td><code>text/xml</code> for SOAP 1.1 or <code>application/soap+xml</code> for SOAP 1.2</td></tr>
+            <tr><td>SOAPAction</td><td><code>http://mock.imaxis.com/{endpoint}/{Operation}</code></td></tr>
+            <tr><td>Operation detection</td><td>Operation can be read from the SOAP body or from <code>SOAPAction</code>.</td></tr>
+        </table>
+        <p class="note">Use namespace <code>http://mock.imaxis.com/session</code>, <code>/wsse</code>, <code>/basic</code>, <code>/ntlm</code>, <code>/sap</code>, or <code>/public</code> according to the endpoint. For no-auth calls, the namespace is <code>http://mock.imaxis.com/public</code>.</p>
+    </div>
+
+    <div class="section">
+        <h3>Endpoint Map</h3>
+        <table>
+            <tr><th>Auth mode</th><th>WSDL</th><th>SOAP</th><th>Namespace</th></tr>
+            <tr><td>Session</td><td><code>/session/service.wsdl</code></td><td><code>/session/soap</code></td><td><code>http://mock.imaxis.com/session</code></td></tr>
+            <tr><td>WS-Security</td><td><code>/wsse/service.wsdl</code></td><td><code>/wsse/soap</code></td><td><code>http://mock.imaxis.com/wsse</code></td></tr>
+            <tr><td>Basic</td><td><code>/basic/service.wsdl</code></td><td><code>/basic/soap</code></td><td><code>http://mock.imaxis.com/basic</code></td></tr>
+            <tr><td>NTLM</td><td><code>/ntlm/service.wsdl</code></td><td><code>/ntlm/soap</code></td><td><code>http://mock.imaxis.com/ntlm</code></td></tr>
+            <tr><td>SAP</td><td><code>/sap/service.wsdl</code></td><td><code>/sap/soap</code></td><td><code>http://mock.imaxis.com/sap</code></td></tr>
+            <tr><td>No Auth</td><td><code>/noauth/service.wsdl</code></td><td><code>/noauth/soap</code></td><td><code>http://mock.imaxis.com/public</code></td></tr>
+        </table>
+    </div>
+
+    <h2>ERP Operation Catalog</h2>
+    <div class="grid">
+        <div class="section">
+            <h3>Customers</h3>
+            <p><span class="pill">GetCustomers</span><span class="pill">ListCustomers</span><span class="pill">GetCustomer</span><span class="pill">CreateCustomer</span><span class="pill">UpdateCustomer</span></p>
+            <p><strong>List filters:</strong> <code>code</code>, <code>status</code>, <code>taxNumber</code>, <code>maxResults</code>, <code>offset</code></p>
+            <p><strong>Lookup:</strong> <code>id</code> or <code>code</code></p>
+            <p><strong>Payload:</strong> <code>customer</code> with code, name, taxNumber, email, phone, address, currency, riskLimit, status</p>
+        </div>
+        <div class="section">
+            <h3>Stocks</h3>
+            <p><span class="pill">GetStocks</span><span class="pill">ListStocks</span><span class="pill">GetStock</span><span class="pill">CreateStock</span><span class="pill">UpdateStock</span></p>
+            <p><strong>List filters:</strong> <code>code</code>, <code>status</code>, <code>nameContains</code>, <code>maxResults</code>, <code>offset</code></p>
+            <p><strong>Lookup:</strong> <code>id</code> or <code>code</code></p>
+            <p><strong>Payload:</strong> <code>stock</code> with code, name, unit, vatRate, price, stockOnHand, minStock, status</p>
+        </div>
+        <div class="section">
+            <h3>Cash Accounts</h3>
+            <p><span class="pill">GetCashAccounts</span><span class="pill">ListCashAccounts</span><span class="pill">GetCashAccount</span><span class="pill">CreateCashAccount</span><span class="pill">UpdateCashAccount</span></p>
+            <p><strong>List filters:</strong> <code>status</code>, <code>currency</code>, <code>maxResults</code>, <code>offset</code></p>
+            <p><strong>Lookup:</strong> <code>id</code> or <code>code</code></p>
+            <p><strong>Payload:</strong> <code>cashAccount</code> with code, name, currency, balance, status</p>
+        </div>
+        <div class="section">
+            <h3>Orders</h3>
+            <p><span class="pill">GetOrders</span><span class="pill">ListOrders</span><span class="pill">GetOrder</span><span class="pill">CreateOrder</span><span class="pill">UpdateOrder</span><span class="pill">ApproveOrder</span><span class="pill">CancelOrder</span></p>
+            <p><strong>List filters:</strong> <code>customerId</code>, <code>status</code>, <code>fromDate</code>, <code>toDate</code>, <code>maxResults</code>, <code>offset</code></p>
+            <p><strong>Lookup/action:</strong> <code>id</code> or <code>orderNo</code></p>
+            <p><strong>Payload:</strong> <code>order</code> with orderNo, customerId/customerCode, status, orderDate, currency, notes, lines</p>
+        </div>
+        <div class="section">
+            <h3>Invoices</h3>
+            <p><span class="pill">GetInvoices</span><span class="pill">ListInvoices</span><span class="pill">GetInvoice</span><span class="pill">CreateInvoice</span><span class="pill">CreateInvoiceFromOrder</span><span class="pill">CancelInvoice</span></p>
+            <p><strong>List filters:</strong> <code>customerId</code>, <code>status</code>, <code>fromDate</code>, <code>toDate</code>, <code>maxResults</code>, <code>offset</code></p>
+            <p><strong>Lookup/action:</strong> <code>id</code> or <code>invoiceNo</code></p>
+            <p><strong>Payload:</strong> <code>invoice</code> with invoiceNo, orderId/orderNo, customerId/customerCode, invoiceDate, dueDate, currency, lines</p>
+        </div>
+        <div class="section">
+            <h3>Cash Transactions</h3>
+            <p><span class="pill">GetCashTransactions</span><span class="pill">ListCashTransactions</span><span class="pill">GetCashTransaction</span><span class="pill">CreateCashTransaction</span><span class="pill">ReverseCashTransaction</span></p>
+            <p><strong>List filters:</strong> <code>cashAccountId</code>, <code>type</code>, <code>fromDate</code>, <code>toDate</code>, <code>maxResults</code>, <code>offset</code></p>
+            <p><strong>Lookup/action:</strong> <code>id</code> or <code>txnNo</code></p>
+            <p><strong>Payload:</strong> <code>cashTransaction</code> with txnNo, cashAccountId/cashAccountCode, customerId/customerCode, invoiceId/invoiceNo, type, amount, currency, method, transactionDate, description</p>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Public Operations</h3>
+        <p><span class="pill">GetCountries</span><span class="pill">GetCities</span></p>
+        <p><strong>GetCountries:</strong> optional <code>continent</code> filter.</p>
+        <p><strong>GetCities:</strong> optional <code>countryCode</code> filter.</p>
+    </div>
+
+    <details>
+        <summary>Common payload shapes</summary>
+        <table>
+            <tr><th>Payload</th><th>Fields</th></tr>
+            <tr><td><code>customer</code></td><td><code>id</code> <span class="optional">(update)</span>, <code>code</code>, <code>name</code>, <code>taxNumber</code>, <code>email</code>, <code>phone</code>, <code>address</code>, <code>currency</code>, <code>riskLimit</code>, <code>status</code></td></tr>
+            <tr><td><code>stock</code></td><td><code>id</code> <span class="optional">(update)</span>, <code>code</code>, <code>name</code>, <code>unit</code>, <code>vatRate</code>, <code>price</code>, <code>stockOnHand</code>, <code>minStock</code>, <code>status</code></td></tr>
+            <tr><td><code>cashAccount</code></td><td><code>id</code> <span class="optional">(update)</span>, <code>code</code>, <code>name</code>, <code>currency</code>, <code>balance</code>, <code>status</code></td></tr>
+            <tr><td><code>order</code></td><td><code>id</code> <span class="optional">(update)</span>, <code>orderNo</code>, <code>customerId</code> or <code>customerCode</code>, <code>status</code>, <code>orderDate</code>, <code>currency</code>, <code>notes</code>, <code>lines&gt;line</code></td></tr>
+            <tr><td><code>invoice</code></td><td><code>id</code> <span class="optional">(update)</span>, <code>invoiceNo</code>, <code>orderId</code> or <code>orderNo</code>, <code>customerId</code> or <code>customerCode</code>, <code>invoiceDate</code>, <code>dueDate</code>, <code>currency</code>, <code>lines&gt;line</code></td></tr>
+            <tr><td><code>line</code></td><td><code>stockId</code> or <code>stockCode</code>, <code>quantity</code>, <code>unitPrice</code>, <code>discountRate</code>, <code>taxRate</code></td></tr>
+            <tr><td><code>cashTransaction</code></td><td><code>id</code> <span class="optional">(reverse)</span>, <code>txnNo</code>, <code>cashAccountId</code> or <code>cashAccountCode</code>, <code>customerId</code> or <code>customerCode</code>, <code>invoiceId</code> or <code>invoiceNo</code>, <code>type</code>, <code>amount</code>, <code>currency</code>, <code>method</code>, <code>transactionDate</code>, <code>description</code></td></tr>
+        </table>
+        <p class="muted">Create operations can omit IDs. Update/action operations accept ID fields or the related business number/code where available.</p>
+    </details>
+
+    <div class="section">
+        <h3>Common Values</h3>
+        <table>
+            <tr><th>Field</th><th>Accepted values / format</th></tr>
+            <tr><td><code>currency</code></td><td><code>TRY</code>, <code>USD</code>, <code>EUR</code></td></tr>
+            <tr><td><code>vatRate</code>, <code>taxRate</code></td><td><code>0</code>, <code>1</code>, <code>8</code>, <code>18</code></td></tr>
+            <tr><td>Cash transaction type</td><td><code>COLLECTION</code>, <code>PAYMENT</code></td></tr>
+            <tr><td>Cash transaction method</td><td><code>CASH</code>, <code>BANK</code>, <code>POS</code>, <code>TRANSFER</code></td></tr>
+            <tr><td><code>orderDate</code>, <code>invoiceDate</code>, <code>dueDate</code>, <code>transactionDate</code></td><td><code>YYYY-MM-DD</code></td></tr>
+            <tr><td>Customer/stock status</td><td><code>ACTIVE</code>, <code>INACTIVE</code></td></tr>
+            <tr><td>Cash account status</td><td><code>OPEN</code>, <code>CLOSED</code></td></tr>
+            <tr><td>Order status</td><td><code>DRAFT</code>, <code>APPROVED</code>, <code>CANCELLED</code>, <code>INVOICED</code></td></tr>
+            <tr><td>Invoice status</td><td><code>ISSUED</code>, <code>PAID</code>, <code>CANCELLED</code></td></tr>
+            <tr><td>Cash transaction status</td><td><code>ISSUED</code>, <code>REVERSED</code></td></tr>
+        </table>
+    </div>
+
+    <h2>Example Requests</h2>
+    <details open>
+        <summary>No Auth - List Customers</summary>
+        <pre><code>curl -X POST http://localhost:8099/noauth/soap \
+  -H "Content-Type: text/xml" \
+  -H "SOAPAction: http://mock.imaxis.com/public/ListCustomers" \
+  -d '&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"&gt;
+  &lt;soap:Body&gt;
+    &lt;ListCustomers xmlns="http://mock.imaxis.com/public"&gt;
+      &lt;status&gt;ACTIVE&lt;/status&gt;
+      &lt;maxResults&gt;10&lt;/maxResults&gt;
+    &lt;/ListCustomers&gt;
+  &lt;/soap:Body&gt;
+&lt;/soap:Envelope&gt;'</code></pre>
+    </details>
+
+    <details>
+        <summary>Basic Auth - Create Order</summary>
+        <pre><code>curl -X POST http://localhost:8099/basic/soap \
+  -u testuser:testpass123 \
+  -H "Content-Type: text/xml" \
+  -H "SOAPAction: http://mock.imaxis.com/basic/CreateOrder" \
+  -d '&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"&gt;
+  &lt;soap:Body&gt;
+    &lt;CreateOrder xmlns="http://mock.imaxis.com/basic"&gt;
+      &lt;order&gt;
+        &lt;orderNo&gt;SO-2024-TEST-01&lt;/orderNo&gt;
+        &lt;customerCode&gt;CUST-0001&lt;/customerCode&gt;
+        &lt;status&gt;DRAFT&lt;/status&gt;
+        &lt;orderDate&gt;2024-12-01&lt;/orderDate&gt;
+        &lt;currency&gt;TRY&lt;/currency&gt;
+        &lt;lines&gt;
+          &lt;line&gt;
+            &lt;stockCode&gt;STK-0002&lt;/stockCode&gt;
+            &lt;quantity&gt;3&lt;/quantity&gt;
+            &lt;unitPrice&gt;350&lt;/unitPrice&gt;
+            &lt;taxRate&gt;18&lt;/taxRate&gt;
+          &lt;/line&gt;
+        &lt;/lines&gt;
+      &lt;/order&gt;
+    &lt;/CreateOrder&gt;
+  &lt;/soap:Body&gt;
+&lt;/soap:Envelope&gt;'</code></pre>
+    </details>
+
+    <details>
+        <summary>Session Auth - Login then Get Stock</summary>
+        <pre><code>TOKEN=$(curl -s -X POST http://localhost:8099/session/soap \
+  -H "Content-Type: text/xml" \
+  -H "SOAPAction: http://mock.imaxis.com/session/Login" \
+  -d '&lt;soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"&gt;
+  &lt;soap:Body&gt;
+    &lt;Login xmlns="http://mock.imaxis.com/session"&gt;
+      &lt;username&gt;testuser&lt;/username&gt;
+      &lt;password&gt;testpass123&lt;/password&gt;
+    &lt;/Login&gt;
+  &lt;/soap:Body&gt;
+&lt;/soap:Envelope&gt;' | tr -d '\n' | sed -n 's:.*&lt;sessionToken&gt;\([^&lt;]*\)&lt;/sessionToken&gt;.*:\1:p')
+
+curl -X POST http://localhost:8099/session/soap \
+  -H "X-Session-Token: $TOKEN" \
+  -H "Content-Type: text/xml" \
+  -H "SOAPAction: http://mock.imaxis.com/session/GetStock" \
+  -d '&lt;soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"&gt;
+  &lt;soap:Body&gt;
+    &lt;GetStock xmlns="http://mock.imaxis.com/session"&gt;
+      &lt;code&gt;STK-0002&lt;/code&gt;
+    &lt;/GetStock&gt;
+  &lt;/soap:Body&gt;
+&lt;/soap:Envelope&gt;'</code></pre>
+    </details>
+
+    <details>
+        <summary>SAP Session - First request creates cookie and CSRF token</summary>
+        <pre><code>curl -i -c sap-cookie.txt -X POST http://localhost:8099/sap/soap \
+  -u testuser:testpass123 \
+  -H "sap-client: 100" \
+  -H "x-csrf-token: Fetch" \
+  -H "Content-Type: text/xml" \
+  -H "SOAPAction: http://mock.imaxis.com/sap/ListInvoices" \
+  -d '&lt;soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"&gt;
+  &lt;soap:Body&gt;
+    &lt;ListInvoices xmlns="http://mock.imaxis.com/sap"&gt;
+      &lt;maxResults&gt;5&lt;/maxResults&gt;
+    &lt;/ListInvoices&gt;
+  &lt;/soap:Body&gt;
+&lt;/soap:Envelope&gt;'</code></pre>
+        <p class="muted">The response includes <code>SAP_SESSIONID_MKS_100</code> and <code>x-csrf-token</code>. Send the cookie on later SAP requests.</p>
+    </details>
+
+    <h2>Responses and State</h2>
+    <div class="section">
+        <ul>
+            <li>Responses are SOAP envelopes with <code>{Operation}Response</code> in the body.</li>
+            <li>Validation and business errors are returned as SOAP faults with HTTP status codes such as <code>400</code> or <code>401</code>.</li>
+            <li>List operations return arrays under names such as <code>customers</code>, <code>stocks</code>, <code>orders</code>, <code>invoices</code>, and <code>cashTransactions</code>.</li>
+            <li>Create operations generate missing IDs and default timestamps, then persist into that endpoint's JSON store.</li>
+            <li>Approve, cancel, reverse, and invoice-from-order operations update related entity state in the same endpoint store.</li>
+        </ul>
     </div>
 
     <h2>Standards Compliance</h2>
